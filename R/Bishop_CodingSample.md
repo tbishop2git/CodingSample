@@ -1,36 +1,14 @@
----
-title: "EC522 Final Project, Predicting Oregon's 2022 Total Nonfarm Payroll"
-author: "Tracy Bishop"
-date: "Due 3/18/2022"
-output: github_document
----
+EC522 Final Project, Predicting Oregon’s 2022 Total Nonfarm Payroll
+================
+Tracy Bishop
+Due 3/18/2022
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(
-  echo = TRUE, ## Show all R output
-  message = FALSE ## Suppress messages (e.g. about namespace conflicts)
-  ) 
-```
-
-```{r, warning=FALSE, include=FALSE}
-# load packages
-library(pacman)
-p_load(tidyverse, skimr, janitor, 
-       tidymodels, magrittr, fredr,
-       glmnet, parsnip, baguette, 
-       ranger, doParallel, kernlab, 
-       gt, forecast, tseries, lubridate)
-
-# Load the ARIMA forecast from RATS
-RATS_df = read_csv(here::here("data/ORNAforedata.csv"))
-
-```
-
-For this project I will be predicting Oregon's monthly, seasonally adjusted, total nonfarm payroll in 2022.
+For this project I will be predicting Oregon’s monthly, seasonally
+adjusted, total nonfarm payroll in 2022.
 
 FRED ID: ORNA
 
-```{r, warning=FALSE}
+``` r
 ############  Output variable ##########
 ORNA <- fredr(series_id = "ORNA",
               observation_start = as.Date("1990-01-01"),
@@ -44,21 +22,27 @@ rm(ORNA)
 
 GDPC1: National Real GDP, quarterly, billions of chained US dollars
 
-I will include lagged and difference terms of ORNA as predictors. I will also consider the following FRED series as potential explanatory variables:
+I will include lagged and difference terms of ORNA as predictors. I will
+also consider the following FRED series as potential explanatory
+variables:
 
-ORPHCI: Coincident Economic Activity, index 2007=100. The Coincident Economic Activity Index includes four indicators: nonfarm payroll employment, the unemployment rate, average hours worked in manufacturing and wages and salaries. The trend for each state's index is set to match the trend for gross state product. 
+ORPHCI: Coincident Economic Activity, index 2007=100. The Coincident
+Economic Activity Index includes four indicators: nonfarm payroll
+employment, the unemployment rate, average hours worked in manufacturing
+and wages and salaries. The trend for each state’s index is set to match
+the trend for gross state product.
 
 LBSSA41: Labor Force Participation rate, %
 
 ORLF: Civilian Labor Force, persons
- 
+
 ORMFG: all employees manufacturing, 1000s of persons
 
 ORCONS: all employees construction, 1000s of persons
 
 ORGOVT: all employees gov, 1000s of persons
 
-SMS41000005000000001:  all employees information, 1000s of persons
+SMS41000005000000001: all employees information, 1000s of persons
 
 ORFIRE: all employees financial activities, 1000s of persons
 
@@ -68,29 +52,38 @@ ORLEIH: all employees leisure and hospitality, 1000s of persons
 
 ORNRMN: all employees mining and logging, 1000s of persons
 
-ORPBSV: all employees professional and business services, 1000s of persons
+ORPBSV: all employees professional and business services, 1000s of
+persons
 
 OREDUH: all employees education and health services, 1000s of persons
 
-ORTRAD: all employees trade, transportation, and utilities, 1000s of persons
+ORTRAD: all employees trade, transportation, and utilities, 1000s of
+persons
 
 ORUR: Unemployment rate, %
 
 ORPOP: Resident population, 1000s of persons
 
-All the series except for Population and Real Median Household Income are seasonally adjusted. Population and income are both annual values and the annual value is assumed to be constant throughout the year.
+All the series except for Population and Real Median Household Income
+are seasonally adjusted. Population and income are both annual values
+and the annual value is assumed to be constant throughout the year.
 
-########################################
+######################################## 
 
-In addition to the Oregon-specific variables, I included several national average variables. This is because I thought these variables might contribute to the predictions but OR-specific data wasn't easily available.
+In addition to the Oregon-specific variables, I included several
+national average variables. This is because I thought these variables
+might contribute to the predictions but OR-specific data wasn’t easily
+available.
 
-LNS11300002: National average of the labor force participation rate for women
+LNS11300002: National average of the labor force participation rate for
+women
 
-LNS11300001: National average of the labor force participation rate for men
+LNS11300001: National average of the labor force participation rate for
+men
 
 TEMPHELPS: National average of Temporary Help Services, 1000s of persons
 
-```{r, warning=FALSE}
+``` r
 ######## Predictors from FRED 
 
 FRED_series <- data.frame(
@@ -160,12 +153,16 @@ total_df <- merge(output_df, input_df, by = "date")
 remove(list=c("output_df", "input_df"))
 ```
 
-Because I am trying to predict outcomes one year  into the future I offset the data by one year. Inputs from 1990 are being used to predict outcomes in 1991. Inputs from '91 are being used to predict outcomes in '92 etc.
+Because I am trying to predict outcomes one year into the future I
+offset the data by one year. Inputs from 1990 are being used to predict
+outcomes in 1991. Inputs from ’91 are being used to predict outcomes in
+’92 etc.
 
-I also include the previous year's value of the outcome variable as as a predictor as well as the previous year's month-over-month difference term.
+I also include the previous year’s value of the outcome variable as as a
+predictor as well as the previous year’s month-over-month difference
+term.
 
-```{r, warning=FALSE}
-
+``` r
 # function to create lagged inputs
 lagged_fun = function(data, n) {
 
@@ -202,33 +199,32 @@ return(output_df)}  # end function
 
 # Created the Lagged df
 lag_df <- lagged_fun(total_df, 12)
-
 ```
 
 ## Cleaning
 
-I will reserve data beginning in January 2021 as the validation test set and only train on data between 1990 - 2020.
+I will reserve data beginning in January 2021 as the validation test set
+and only train on data between 1990 - 2020.
 
-```{r, warning=FALSE}
-
+``` r
 train_df <- lag_df %>% 
   filter(date < "2021-01-01")
 test_df <- lag_df %>%
   filter(date >= as.Date("2021-01-01") & date < as.Date("2022-01-01"))
 fore_df <- lag_df %>%
   filter(date >= "2022-01-01")
-
 ```
 
+Because I used data from FRED not much cleaning is needed. There is one
+“NA” in the difference term so I will use mean imputation to fill in
+that missing value.
 
-Because I used data from FRED not much cleaning is needed. There is one "NA" in the difference term so I will use mean imputation to fill in that missing value.
-
-I transformed the labor force, population, and income variables by taking their natural log. 
+I transformed the labor force, population, and income variables by
+taking their natural log.
 
 I normalized all the predictors and used 5-fold cross validation.
 
-
-```{r, warning=FALSE}
+``` r
 # Define recipe
 labor_recipe <- train_df %>% recipe(ORNA ~ .) %>%
   #update role for date variable
@@ -248,8 +244,7 @@ train_cv <- train_df %>% vfold_cv(v = 5)
 
 # ARIMA Prediction (from RATS)
 
-```{r, warning=FALSE}
-
+``` r
 # Collect results
 validation_df <- data.frame(test_df[,1:2])
 validation_df[,3] <- RATS_df[1:12, 2]
@@ -264,17 +259,24 @@ forecast_df <- rename(forecast_df, ARIMA=FORE3)
 
 #calculate the RMSE
 rmse_arima <- sqrt(mean(validation_df$ARIMA_resid^2))
-
 ```
 
-Now that I have a baseline ARIMA model I'll see if I can do better by using some of the machine learning techniques introduced in EC524 I'll start with a linear regression that takes all of the predictors and applies shrinkage coefficients to minimize over-fitting the data.
+Now that I have a baseline ARIMA model I’ll see if I can do better by
+using some of the machine learning techniques introduced in EC524 I’ll
+start with a linear regression that takes all of the predictors and
+applies shrinkage coefficients to minimize over-fitting the data.
 
 # Elastic Net
 
-To find the best fit I will simultaneously tune the penalty (shrinkage coefficient) and the mixture. A mixture of 0 is a ridge regression meaning that all the predictors are used; the shrinkage coefficient might shrink the betas to near-zero but they will not reach zero. A mixture of 1 is lasso regression where some of the betas can be shrunk all the way to zero. A mixture between 0 and 1 is some combination of the model types. 
+To find the best fit I will simultaneously tune the penalty (shrinkage
+coefficient) and the mixture. A mixture of 0 is a ridge regression
+meaning that all the predictors are used; the shrinkage coefficient
+might shrink the betas to near-zero but they will not reach zero. A
+mixture of 1 is lasso regression where some of the betas can be shrunk
+all the way to zero. A mixture between 0 and 1 is some combination of
+the model types.
 
-```{r, warning=FALSE}
-
+``` r
 #create lambdas and alphas
 lambdas <- 10^seq(from = 5, to = -2, length = 100)
 alphas <- seq(from = 0, to = 1, by = 0.1)
@@ -352,7 +354,11 @@ ggplot(df, aes(x = date, y = value)) +
   labs(title="Out of Sample Nonfarm Total Payroll Results",
        y="Payroll (1000s of persons)", x="Time") +
   theme_bw() 
+```
 
+![](Bishop_CodingSample_files/figure-gfm/unnamed-chunk-8-1.png)<!-- -->
+
+``` r
 #Predict onto the forecast set
 remove(yhat_net)
 yhat_net <- fitted_final_net %>% predict(new_data = fore_df)
@@ -364,11 +370,14 @@ forecast_df$net_pred <- yhat_net$.pred
 remove(list=c("df", "yhat_net"))
 ```
 
-Out of curiosity I used bagged trees to look at the relative importance of the variables. I didn't tune this model at all because I know the trees will be too correlated to give good predictions. This just gives me a way to look at the relative importance of the predictors.
+Out of curiosity I used bagged trees to look at the relative importance
+of the variables. I didn’t tune this model at all because I know the
+trees will be too correlated to give good predictions. This just gives
+me a way to look at the relative importance of the predictors.
 
 # Relative importance of predictors
 
-```{r, warning=FALSE}
+``` r
 # look at relative importance of variables
 
 # from class notes:
@@ -408,11 +417,11 @@ theme(legend.position = "none") +
 coord_flip()
 ```
 
+![](Bishop_CodingSample_files/figure-gfm/unnamed-chunk-9-1.png)<!-- -->
 
 # Random Forest
 
-```{r, warning=FALSE}
-
+``` r
 #Define the model 
 rand_model <-
   rand_forest(
@@ -495,14 +504,18 @@ ggplot(df, aes(x = date, y = value)) +
   labs(title="Out of Sample Nonfarm Total Payroll Results",
        y="Payroll (1000s of persons)", x="Time") +
   theme_bw() 
+```
 
+![](Bishop_CodingSample_files/figure-gfm/unnamed-chunk-10-1.png)<!-- -->
+
+``` r
 # clean up environment
 remove(list=c("df", "yhat_rand"))
 ```
 
 # Support Vector Machine (SVM)
-```{r, warning=FALSE}
 
+``` r
 #Define the SVM model
 svm_model <- svm_poly(
   mode = "regression",
@@ -583,17 +596,20 @@ ggplot(df, aes(x = date, y = value)) +
   labs(title="Out of Sample Nonfarm Total Payroll Results",
        y="Payroll (1000s of persons)", x="Time") +
   theme_bw() 
-
-# clean up environment
-remove(list=c("df", "yhat_svm"))
-
 ```
 
+![](Bishop_CodingSample_files/figure-gfm/unnamed-chunk-11-1.png)<!-- -->
+
+``` r
+# clean up environment
+remove(list=c("df", "yhat_svm"))
+```
 
 # Summarizing the test Predictions
-less SVM because it's so far off
-```{r, warning=FALSE}
 
+less SVM because it’s so far off
+
+``` r
 #Convert to ordinal dataframe 
 df_pred <- validation_df %>%
   mutate(`Actual LFPR` = ORNA,
@@ -613,16 +629,15 @@ ggplot(df_pred, aes(x = date, y = value, color = variable, linetype = variable))
   labs(y = "Payroll", x = "Date") +
   ggtitle("Out of Sample Nonfarm Total Payroll Results") +
   labs(color = "variable", linetype = "variable") 
-
 ```
-<br>
-The graph above is a visualization of actual payroll in 2021 and each model's predicted value.
 
+![](Bishop_CodingSample_files/figure-gfm/unnamed-chunk-12-1.png)<!-- -->
+<br> The graph above is a visualization of actual payroll in 2021 and
+each model’s predicted value.
 
 # Summarizing average RMSE
 
-```{r, warning=FALSE}
-
+``` r
 #temporary df for plotting 
 df_res <- validation_df %>%
   mutate(ARIMA = ARIMA_resid,
@@ -641,12 +656,13 @@ ggplot(df_res, aes(x = date, y = value, color = variable)) +
   scale_linetype_manual(values = c("dashed", "twodash", "longdash", "dotted")) +
   labs(y = "Residuals", x = "Date") +
   ggtitle("Out of Sample Residuals")
-
 ```
 
+![](Bishop_CodingSample_files/figure-gfm/unnamed-chunk-13-1.png)<!-- -->
 
 Average Out of Sample RMSE Values
-```{r, warning=FALSE}
+
+``` r
 #create date frame
 rmse_df <- data.frame(Model = c("ARIMA", "Elastic Net", "Random Forest", "SVM"),
   RMSE = c(rmse_arima, rmse_net, rmse_rand, rmse_svm)
@@ -657,13 +673,453 @@ rmse_df %>%
   tab_header(
     title = "Out of Sample Root Mean Squared Error by Model"
   )
-
 ```
+
+<div id="cpijqrmzju" style="overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
+<style>html {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Helvetica Neue', 'Fira Sans', 'Droid Sans', Arial, sans-serif;
+}
+
+#cpijqrmzju .gt_table {
+  display: table;
+  border-collapse: collapse;
+  margin-left: auto;
+  margin-right: auto;
+  color: #333333;
+  font-size: 16px;
+  font-weight: normal;
+  font-style: normal;
+  background-color: #FFFFFF;
+  width: auto;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #A8A8A8;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #A8A8A8;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+}
+
+#cpijqrmzju .gt_heading {
+  background-color: #FFFFFF;
+  text-align: center;
+  border-bottom-color: #FFFFFF;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#cpijqrmzju .gt_title {
+  color: #333333;
+  font-size: 125%;
+  font-weight: initial;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-color: #FFFFFF;
+  border-bottom-width: 0;
+}
+
+#cpijqrmzju .gt_subtitle {
+  color: #333333;
+  font-size: 85%;
+  font-weight: initial;
+  padding-top: 0;
+  padding-bottom: 6px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-color: #FFFFFF;
+  border-top-width: 0;
+}
+
+#cpijqrmzju .gt_bottom_border {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#cpijqrmzju .gt_col_headings {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#cpijqrmzju .gt_col_heading {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 6px;
+  padding-left: 5px;
+  padding-right: 5px;
+  overflow-x: hidden;
+}
+
+#cpijqrmzju .gt_column_spanner_outer {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+#cpijqrmzju .gt_column_spanner_outer:first-child {
+  padding-left: 0;
+}
+
+#cpijqrmzju .gt_column_spanner_outer:last-child {
+  padding-right: 0;
+}
+
+#cpijqrmzju .gt_column_spanner {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  overflow-x: hidden;
+  display: inline-block;
+  width: 100%;
+}
+
+#cpijqrmzju .gt_group_heading {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+}
+
+#cpijqrmzju .gt_empty_group_heading {
+  padding: 0.5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: middle;
+}
+
+#cpijqrmzju .gt_from_md > :first-child {
+  margin-top: 0;
+}
+
+#cpijqrmzju .gt_from_md > :last-child {
+  margin-bottom: 0;
+}
+
+#cpijqrmzju .gt_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  margin: 10px;
+  border-top-style: solid;
+  border-top-width: 1px;
+  border-top-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  overflow-x: hidden;
+}
+
+#cpijqrmzju .gt_stub {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#cpijqrmzju .gt_stub_row_group {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+  vertical-align: top;
+}
+
+#cpijqrmzju .gt_row_group_first td {
+  border-top-width: 2px;
+}
+
+#cpijqrmzju .gt_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#cpijqrmzju .gt_first_summary_row {
+  border-top-style: solid;
+  border-top-color: #D3D3D3;
+}
+
+#cpijqrmzju .gt_first_summary_row.thick {
+  border-top-width: 2px;
+}
+
+#cpijqrmzju .gt_last_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#cpijqrmzju .gt_grand_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#cpijqrmzju .gt_first_grand_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-style: double;
+  border-top-width: 6px;
+  border-top-color: #D3D3D3;
+}
+
+#cpijqrmzju .gt_striped {
+  background-color: rgba(128, 128, 128, 0.05);
+}
+
+#cpijqrmzju .gt_table_body {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#cpijqrmzju .gt_footnotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#cpijqrmzju .gt_footnote {
+  margin: 0px;
+  font-size: 90%;
+  padding-left: 4px;
+  padding-right: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#cpijqrmzju .gt_sourcenotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#cpijqrmzju .gt_sourcenote {
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#cpijqrmzju .gt_left {
+  text-align: left;
+}
+
+#cpijqrmzju .gt_center {
+  text-align: center;
+}
+
+#cpijqrmzju .gt_right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#cpijqrmzju .gt_font_normal {
+  font-weight: normal;
+}
+
+#cpijqrmzju .gt_font_bold {
+  font-weight: bold;
+}
+
+#cpijqrmzju .gt_font_italic {
+  font-style: italic;
+}
+
+#cpijqrmzju .gt_super {
+  font-size: 65%;
+}
+
+#cpijqrmzju .gt_two_val_uncert {
+  display: inline-block;
+  line-height: 1em;
+  text-align: right;
+  font-size: 60%;
+  vertical-align: -0.25em;
+  margin-left: 0.1em;
+}
+
+#cpijqrmzju .gt_footnote_marks {
+  font-style: italic;
+  font-weight: normal;
+  font-size: 75%;
+  vertical-align: 0.4em;
+}
+
+#cpijqrmzju .gt_asterisk {
+  font-size: 100%;
+  vertical-align: 0;
+}
+
+#cpijqrmzju .gt_slash_mark {
+  font-size: 0.7em;
+  line-height: 0.7em;
+  vertical-align: 0.15em;
+}
+
+#cpijqrmzju .gt_fraction_numerator {
+  font-size: 0.6em;
+  line-height: 0.6em;
+  vertical-align: 0.45em;
+}
+
+#cpijqrmzju .gt_fraction_denominator {
+  font-size: 0.6em;
+  line-height: 0.6em;
+  vertical-align: -0.05em;
+}
+</style>
+<table class="gt_table">
+  <thead class="gt_header">
+    <tr>
+      <th colspan="2" class="gt_heading gt_title gt_font_normal gt_bottom_border" style>Out of Sample Root Mean Squared Error by Model</th>
+    </tr>
+    
+  </thead>
+  <thead class="gt_col_headings">
+    <tr>
+      <th class="gt_col_heading gt_columns_bottom_border gt_left" rowspan="1" colspan="1">Model</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1">RMSE</th>
+    </tr>
+  </thead>
+  <tbody class="gt_table_body">
+    <tr><td class="gt_row gt_left">ARIMA</td>
+<td class="gt_row gt_right">57.06877</td></tr>
+    <tr><td class="gt_row gt_left">Elastic Net</td>
+<td class="gt_row gt_right">492.40558</td></tr>
+    <tr><td class="gt_row gt_left">Random Forest</td>
+<td class="gt_row gt_right">58.34313</td></tr>
+    <tr><td class="gt_row gt_left">SVM</td>
+<td class="gt_row gt_right">3302.83778</td></tr>
+  </tbody>
+  
+  
+</table>
+</div>
+
 <br>
 
 # Summarizing 2022 Predictions
-```{r, warning=FALSE}
 
+``` r
 #Convert to ordinal dataframe 
 df_pred <- forecast_df %>%
   mutate( ARIMA = ARIMA,
@@ -683,10 +1139,7 @@ ggplot(df_pred, aes(x = date, y = value, color = variable, linetype = variable))
   labs(y = "Payroll", x = "Date") +
   ggtitle("2022 Total Nonfarm Payroll Forecast Comparison") +
   labs(color = "variable", linetype = "variable") 
-
 ```
-<br>
-<br>
-<br>
-<br>
 
+![](Bishop_CodingSample_files/figure-gfm/unnamed-chunk-15-1.png)<!-- -->
+<br> <br> <br> <br>
